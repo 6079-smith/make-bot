@@ -12,6 +12,8 @@ load_dotenv()
 BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GUILD_ID_STR = os.getenv("DISCORD_GUILD_ID")
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
+MAKE_HEADER_NAME = os.getenv("MAKE_HEADER_NAME")
+MAKE_HEADER_VALUE = os.getenv("MAKE_HEADER_VALUE")
 
 # --- Validation ---
 if not all([BOT_TOKEN, GUILD_ID_STR, MAKE_WEBHOOK_URL]):
@@ -36,11 +38,19 @@ async def query_command(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer(ephemeral=True)
 
     payload = {"message": prompt}
-    headers = {"Content-Type": "application/json"}
+    # Base headers
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    # Optional auth/custom header
+    if MAKE_HEADER_VALUE:
+        if MAKE_HEADER_NAME:
+            headers[MAKE_HEADER_NAME] = MAKE_HEADER_VALUE
+        else:
+            # Fallback to Authorization header if only a value is provided
+            headers["Authorization"] = MAKE_HEADER_VALUE
 
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.post(MAKE_WEBHOOK_URL, data=json.dumps(payload), headers=headers) as response:
+            async with session.post(MAKE_WEBHOOK_URL, json=payload, headers=headers) as response:
                 if response.status == 200:
                     await interaction.followup.send("Your query has been sent for processing.", ephemeral=True)
                 else:
