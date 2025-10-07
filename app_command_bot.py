@@ -4,7 +4,6 @@ import os
 import aiohttp
 import json
 from dotenv import load_dotenv
-
 # Load environment variables from .env file
 load_dotenv()
 
@@ -14,17 +13,23 @@ GUILD_ID_STR = os.getenv("DISCORD_GUILD_ID")
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 MAKE_HEADER_NAME = os.getenv("MAKE_HEADER_NAME")
 MAKE_HEADER_VALUE = os.getenv("MAKE_HEADER_VALUE")
+QUERY_CHANNEL_ID_STR = os.getenv("DISCORD_QUERY_CHANNEL_ID")
 
 # --- Validation ---
-if not all([BOT_TOKEN, GUILD_ID_STR, MAKE_WEBHOOK_URL]):
+if not all([BOT_TOKEN, GUILD_ID_STR, MAKE_WEBHOOK_URL, QUERY_CHANNEL_ID_STR]):
     raise ValueError("A required environment variable is missing.")
 try:
     GUILD_ID = discord.Object(id=int(GUILD_ID_STR))
 except ValueError:
     raise ValueError("DISCORD_GUILD_ID must be a valid integer.")
+try:
+    QUERY_CHANNEL_ID = int(QUERY_CHANNEL_ID_STR)
+except ValueError:
+    raise ValueError("DISCORD_QUERY_CHANNEL_ID must be a valid integer.")
 
 # --- Bot Setup ---
 intents = discord.Intents.default()
+intents.message_content = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
@@ -59,6 +64,70 @@ async def query_command(interaction: discord.Interaction, prompt: str):
         except aiohttp.ClientError as e:
             print(f"An HTTP client error occurred: {e}")
             await interaction.followup.send("A network error occurred. Please try again later.", ephemeral=True)
+
+@client.event
+async def on_message(message: discord.Message):
+    # Ignore messages from bots (including itself)
+    if message.author.bot:
+        return
+
+    # Only handle messages from the designated query channel
+    if message.channel.id != QUERY_CHANNEL_ID:
+        return
+
+    content = message.content.strip()
+    if not content:
+        return
+
+    # Ignore messages that look like commands (let other bots work)
+    IGNORE_PREFIXES = ("/", "!", "?", ".")
+    if content.startswith(IGNORE_PREFIXES):
+        return
+
+    payload = {
+        "message": content,
+        "author": {
+            "id": str(message.author.id),
+            "username": str(message.author),
+            "display_name": getattr(message.author, "display_name", None),
+        },
+        "message_url": message.jump_url,
+        "message_id": str(message.id),
+        "channel_id": str(message.channel.id),
+        "channel_name": getattr(message.channel, "name", None),
+        "guild_id": str(message.guild.id) if message.guild else None,
+        "guild_name": message.guild.name if message.guild else None,
+        "created_at": message.created_at.isoformat(),
+    }
+
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if MAKE_HEADER_VALUE:
+        if MAKE_HEADER_NAME:
+            headers[MAKE_HEADER_NAME] = MAKE_HEADER_VALUE
+        else:
+            headers["Authorization"] = MAKE_HEADER_VALUE
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(MAKE_WEBHOOK_URL, json=payload, headers=headers) as response:
+                if response.status == 200:
+                    try:
+                        await message.add_reaction("✅")
+                    except discord.Forbidden:
+                        pass
+                else:
+                    text = await response.text()
+                    print(f"Error forwarding to Make.com. Status: {response.status}, Response: {text}")
+                    try:
+                        await message.add_reaction("❌")
+                    except discord.Forbidden:
+                        pass
+    except aiohttp.ClientError as e:
+        print(f"An HTTP client error occurred: {e}")
+        try:
+            await message.add_reaction("❌")
+        except discord.Forbidden:
+            pass
 
 @client.event
 async def on_ready():
