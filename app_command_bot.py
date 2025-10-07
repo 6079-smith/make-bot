@@ -111,23 +111,14 @@ async def on_message(message: discord.Message):
         async with aiohttp.ClientSession() as session:
             async with session.post(MAKE_WEBHOOK_URL, json=payload, headers=headers) as response:
                 if response.status == 200:
-                    try:
-                        await message.add_reaction("✅")
-                    except discord.Forbidden:
-                        pass
+                    pass
                 else:
                     text = await response.text()
                     print(f"Error forwarding to Make.com. Status: {response.status}, Response: {text}")
-                    try:
-                        await message.add_reaction("❌")
-                    except discord.Forbidden:
-                        pass
+                    pass
     except aiohttp.ClientError as e:
         print(f"An HTTP client error occurred: {e}")
-        try:
-            await message.add_reaction("❌")
-        except discord.Forbidden:
-            pass
+        pass
 
 @client.event
 async def on_ready():
